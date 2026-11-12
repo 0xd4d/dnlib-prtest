@@ -40,13 +40,18 @@ results, so you can look at the details or diff two runs.
 
 ## Commands
 
-| Command | What it does | Time (32 cores, full corpus) |
+| Command | What it does | How long |
 |---|---|---|
-| `cases` | About 50 hand-written cases: small valid and invalid bodies, save with and without a no-throw logger, and huge bodies that expose quadratic time or memory. Each case runs in its own process. | under 1 min, plus 60 s per case that times out |
+| `cases` | About 50 hand-written cases: small valid and invalid bodies, save with and without a no-throw logger, and huge bodies that expose quadratic time or memory. Each case runs in its own process. | short; a case that hangs is killed after 60 s |
 | `runtime` | Each build writes an exe whose methods get their max stack from that build. The exe is run on CoreCLR, Mono and .NET Framework. A method that works with the baseline but throws `InvalidProgramException` with the candidate is a regression. | seconds |
-| `corpus` | Every method of every corpus file: compares the max stack results; for files that differ (the first 200, `--detail-files`), lists the methods. Then loads and saves every file with both builds and compares the output bytes, errors and save time. | about 35 min |
-| `perf` | Times only the calculator on corpus files (default: first 3000), best of 3 runs, alternating baseline and candidate. Also compares allocated bytes. | a few min |
+| `corpus` | Every method of every corpus file: compares the max stack results; for files that differ (the first 200, `--detail-files`), lists the methods. Then loads and saves every file with both builds and compares the output bytes, errors and save time. | by far the longest: every corpus file is processed 4 times (max stack and save, with each build) |
+| `perf` | Times only the calculator on corpus files (default: first 3000), best of 3 runs, alternating baseline and candidate. Also compares allocated bytes. | a few minutes with the default 3000 files |
 | `all` | All of the above. | |
+
+Run time depends on your machine. Work runs in parallel worker processes, by default one per CPU core
+(but at most one per GB of RAM, since a worker saving a big assembly can use about 1 GB). While a step runs,
+its progress line shows an estimate of the time left. For a quicker first run, use a smaller corpus
+(`download --top 300`) or `--files 2000`.
 
 Options (all commands): `--jobs N` (parallel worker processes), `--files N` (use only the first N corpus files),
 `--timeout SECONDS`, `--max-memory-mb N`, `--output DIR`. `perf` also takes `--iterations` and `--rounds`.

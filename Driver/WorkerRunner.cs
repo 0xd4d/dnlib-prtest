@@ -65,13 +65,24 @@ namespace Driver {
 			var stopwatch = Stopwatch.StartNew();
 			string label = $"  {worker.Side} {command}";
 			while (threads.Any(t => t.IsAlive)) {
-				Console.Write($"\r{label}: {job.FinishedCount}/{items.Count} ({stopwatch.Elapsed:hh\\:mm\\:ss})  ");
+				Console.Write($"\r{label}: {job.FinishedCount}/{items.Count} ({stopwatch.Elapsed:hh\\:mm\\:ss}{EstimateTimeLeft(job.FinishedCount, items.Count, stopwatch.Elapsed)})  ");
 				Thread.Sleep(1000);
 			}
 			Console.WriteLine($"\r{label}: {items.Count}/{items.Count} ({stopwatch.Elapsed:hh\\:mm\\:ss})  ");
 			if (job.FatalError is not null)
 				throw new FatalException(job.FatalError);
 			return job.Results;
+		}
+
+		/// <summary>
+		/// ", about 00:12:00 left", based on the speed so far. Corpus files are in a random-looking order, so big
+		/// and small files are spread evenly and the speed so far is a fair guess for the rest.
+		/// </summary>
+		static string EstimateTimeLeft(int finished, int total, TimeSpan elapsed) {
+			if (finished == 0 || finished >= total || elapsed < TimeSpan.FromSeconds(10))
+				return "";
+			var timeLeft = TimeSpan.FromSeconds(Math.Round(elapsed.TotalSeconds * (total - finished) / finished));
+			return $", about {timeLeft:hh\\:mm\\:ss} left";
 		}
 
 		sealed class Job {
