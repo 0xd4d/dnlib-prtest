@@ -79,7 +79,7 @@ namespace Driver {
 			report.Line();
 
 			string[] Row(int i) => new[] {
-				Path.GetFileName(files[i]),
+				context.DisplayPath(files[i]),
 				baseline[i].Methods.ToString("N0"),
 				Format.Milliseconds(baseline[i].BestMilliseconds),
 				Format.Milliseconds(candidate[i].BestMilliseconds),

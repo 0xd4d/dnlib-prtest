@@ -29,7 +29,8 @@ namespace Driver {
 			report.Heading(2, $"Corpus: {files.Count:N0} files");
 
 			// Many files per process: starting a process costs ~100 ms.
-			var settings = context.DefaultRunSettings(itemsPerProcess: 25, defaultTimeoutSeconds: 300);
+			// The timeout only catches real hangs: the biggest corpus files take several minutes to save.
+			var settings = context.DefaultRunSettings(itemsPerProcess: 25, defaultTimeoutSeconds: 1800);
 			string workDir = Path.Combine(context.OutputDir, "corpus");
 
 			var baselineMethods = RunAndSave(context.Baseline, "methods", files, settings, workDir);
@@ -80,7 +81,7 @@ namespace Driver {
 				else if (b[0] == "LOADFAIL" && c[0] == "LOADFAIL")
 					loadFailures++;
 				else
-					failures.Add(new[] { files[i], ShortResult(b), ShortResult(c) });
+					failures.Add(new[] { context.DisplayPath(files[i]), ShortResult(b), ShortResult(c) });
 			}
 
 			report.Line($"- Files where every method has the same result: {identicalFiles:N0}");
@@ -126,7 +127,7 @@ namespace Driver {
 				var candidateMethods = GetMethodDetails(context.Candidate, files[fileIndex], fileIndex, detailsDir, out string candidateError);
 				if (baselineMethods is null || candidateMethods is null) {
 					lock (unavailable)
-						unavailable.Add(new[] { files[fileIndex], baselineError ?? "OK", candidateError ?? "OK" });
+						unavailable.Add(new[] { context.DisplayPath(files[fileIndex]), baselineError ?? "OK", candidateError ?? "OK" });
 					return;
 				}
 				var found = new List<MethodDifference>();
@@ -153,7 +154,7 @@ namespace Driver {
 			report.Line();
 			var examples = differences.GroupBy(d => d.Kind).SelectMany(g => g.Take(5));
 			report.Table(new[] { "Method", "File", "Baseline", "Candidate" },
-				examples.Select(d => new[] { $"{d.Method.Name} ({d.Method.Size})", Path.GetFileName(d.File), d.Baseline?.Result ?? "missing", d.Candidate?.Result ?? "missing" }));
+				examples.Select(d => new[] { $"{d.Method.Name} ({d.Method.Size})", context.DisplayPath(d.File), d.Baseline?.Result ?? "missing", d.Candidate?.Result ?? "missing" }));
 
 			if (unavailable.Count > 0) {
 				report.Line("Files whose per-method results couldn't be produced (the method-details command failed):");
@@ -257,19 +258,19 @@ namespace Driver {
 						if (b[3] == c[3])
 							identical++;
 						else
-							differentOutput.Add(new[] { files[i] });
+							differentOutput.Add(new[] { context.DisplayPath(files[i]) });
 					}
 					else if (b[0] == "OK")
-						newFailures.Add(new[] { files[i], c[3] });
+						newFailures.Add(new[] { context.DisplayPath(files[i]), c[3] });
 					else if (c[0] == "OK")
-						fixedFiles.Add(new[] { files[i], b[3] });
+						fixedFiles.Add(new[] { context.DisplayPath(files[i]), b[3] });
 					else
 						bothFail++;
 				}
 				else if (b[0] == "LOADFAIL" && c[0] == "LOADFAIL")
 					loadFailures++;
 				else
-					crashes.Add(new[] { files[i], ShortResult(b), ShortResult(c) });
+					crashes.Add(new[] { context.DisplayPath(files[i]), ShortResult(b), ShortResult(c) });
 			}
 
 			report.Line($"- Byte-identical output: {identical:N0}");
@@ -296,9 +297,18 @@ namespace Driver {
 			ListFiles("Different output", new[] { "File" }, differentOutput);
 			ListFiles("Error on baseline, saved by candidate", new[] { "File", "Baseline error" }, fixedFiles);
 			ListFiles("Crashed, hung or failed (either side)", new[] { "File", "Baseline", "Candidate" }, crashes);
-			ListFiles("Files that took more than twice as long to save (and 50 ms longer)", new[] { "File", "Baseline", "Candidate", "Ratio" },
+
+			if (slowerFiles.Count > 0) {
+				int suspects = slowerFiles.Count;
+				slowerFiles = ConfirmSlowerSaves(context, slowerFiles, workDir);
+				report.Line($"{suspects} files took more than twice as long (and 50 ms longer) to save in the parallel run. " +
+					$"Per-file times there are noisy, so the {Math.Min(suspects, MaxFilesToRetime)} worst were saved again one at a time. " +
+					$"**{slowerFiles.Count}** are still more than twice as slow.");
+				report.Line();
+			}
+			ListFiles("Files that are more than twice as slow to save (timed one at a time)", new[] { "File", "Baseline", "Candidate", "Ratio" },
 				slowerFiles.OrderByDescending(s => s.candidateMs - s.baselineMs)
-					.Select(s => new[] { s.file, Format.Milliseconds(s.baselineMs), Format.Milliseconds(s.candidateMs), Format.Ratio(s.candidateMs, s.baselineMs) }).ToList());
+					.Select(s => new[] { context.DisplayPath(s.file), Format.Milliseconds(s.baselineMs), Format.Milliseconds(s.candidateMs), Format.Ratio(s.candidateMs, s.baselineMs) }).ToList());
 
 			File.WriteAllLines(Path.Combine(workDir, "save-differences.txt"),
 				newFailures.Select(r => "NEW ERROR\t" + string.Join("\t", r))
@@ -306,6 +316,45 @@ namespace Driver {
 				.Concat(fixedFiles.Select(r => "FIXED\t" + string.Join("\t", r)))
 				.Concat(crashes.Select(r => "CRASH/TIMEOUT\t" + string.Join("\t", r)))
 				.Concat(slowerFiles.Select(s => $"SLOWER\t{s.file}\t{s.baselineMs:F1} ms\t{s.candidateMs:F1} ms")));
+		}
+
+		const int MaxFilesToRetime = 100;
+
+		/// <summary>
+		/// In the parallel run many workers share the CPUs, memory bandwidth and disk, so a single file's save
+		/// time can be off by a lot. The files that looked slower are saved again with one worker at a time,
+		/// baseline and candidate alternating, twice each, keeping each side's best time. Returns only the
+		/// files that are still more than twice as slow (and 50 ms slower).
+		/// </summary>
+		static List<(string file, double baselineMs, double candidateMs)> ConfirmSlowerSaves(TestContext context,
+			List<(string file, double baselineMs, double candidateMs)> suspects, string workDir) {
+			var filesToRetime = suspects.OrderByDescending(s => s.candidateMs - s.baselineMs).Take(MaxFilesToRetime).Select(s => s.file).ToList();
+			var settings = context.DefaultRunSettings(itemsPerProcess: 25, defaultTimeoutSeconds: 1800);
+			settings.Jobs = 1;
+
+			var bestMs = new Dictionary<string, double[]> {
+				["baseline"] = filesToRetime.Select(_ => double.MaxValue).ToArray(),
+				["candidate"] = filesToRetime.Select(_ => double.MaxValue).ToArray(),
+			};
+			Console.WriteLine($"  Saving {filesToRetime.Count} files again, one at a time, to confirm they are slower...");
+			for (int round = 0; round < 2; round++) {
+				foreach (var build in context.BothBuilds) {
+					var results = WorkerRunner.Run(build, "save", filesToRetime, settings, Path.Combine(workDir, "retime"));
+					for (int i = 0; i < filesToRetime.Count; i++) {
+						string[] fields = results[i].Split('\t');
+						if (fields[0] == "OK" || fields[0] == "ERR")
+							bestMs[build.Side][i] = Math.Min(bestMs[build.Side][i], double.Parse(fields[1]));
+					}
+				}
+			}
+
+			var confirmed = new List<(string file, double baselineMs, double candidateMs)>();
+			for (int i = 0; i < filesToRetime.Count; i++) {
+				double b = bestMs["baseline"][i], c = bestMs["candidate"][i];
+				if (b != double.MaxValue && c != double.MaxValue && c > 2 * b && c - b > 50)
+					confirmed.Add((filesToRetime[i], b, c));
+			}
+			return confirmed;
 		}
 	}
 }

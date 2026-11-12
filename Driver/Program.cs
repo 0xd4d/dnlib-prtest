@@ -23,7 +23,8 @@ Options:
   --output DIR          Where to write the report and raw results (default: results/<time>-<command>)
   --jobs N              Worker processes to run at the same time (default: CPU count, at most 1 per GB of RAM)
   --files N             Use only the first N corpus files (corpus default: all, perf default: 3000)
-  --timeout SECONDS     Kill a worker that spends longer than this on one item (default: 300; cases: 60)
+  --timeout SECONDS     Kill a worker that spends longer than this on one item (default: corpus 1800,
+                        perf 300, cases 60)
   --max-memory-mb N     Kill a worker that uses more memory than this (default: 4096)
   --iterations N        perf: time each file N times in a row and keep the best (default: 3)
   --rounds N            perf: run baseline, candidate, baseline, candidate, ... N times each (default: 2)
@@ -138,6 +139,15 @@ Options:
 		public Report Report;
 
 		public WorkerBuild[] BothBuilds => new[] { Baseline, Candidate };
+
+		/// <summary>
+		/// A corpus file as "package/file", e.g. "newtonsoft.json.13.0.4/lib_net45_Newtonsoft.Json.dll".
+		/// Shorter than the full path, and unlike the file name alone it tells versions apart.
+		/// </summary>
+		public string DisplayPath(string path) {
+			string relative = Path.GetRelativePath(Paths.PackagesDir, path);
+			return relative.StartsWith("..") ? path : relative.Replace('\\', '/');
+		}
 
 		public WorkerRunSettings DefaultRunSettings(int itemsPerProcess, int defaultTimeoutSeconds) => new WorkerRunSettings {
 			Jobs = Options.GetInt("jobs", Options.DefaultJobs),
