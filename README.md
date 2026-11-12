@@ -2,7 +2,7 @@
 
 Compares two dnlib checkouts, a **baseline** (usually `master`) and a **candidate** (your branch). It looks
 for changed results, crashes, slowdowns and extra memory use. It was written to test changes to
-`MaxStackCalculator` (PRs #572 and #603). The corpus `save` test works for any change to the reader or writer.
+`MaxStackCalculator` (PRs [#572](https://github.com/0xd4d/dnlib/pull/572) and [#603](https://github.com/0xd4d/dnlib/pull/603)). The corpus `save` test works for any change to the reader or writer.
 
 The suite is source code only. The `download` command fetches the test corpus (the top 3000 NuGet packages)
 from nuget.org. Everything else, including the synthetic test methods and assemblies, is generated
