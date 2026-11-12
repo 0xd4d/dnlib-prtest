@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The worker is built twice by the driver, once per dnlib checkout (see Driver/WorkerBuild.cs):
+    DnlibDir points at the dnlib checkout, and the artifacts path is build/baseline or build/candidate.
+    Both builds run the same test code; only the referenced dnlib differs.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- Workstation, non-concurrent GC gives steadier timings and allocation numbers. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(DnlibDir)/src/dnlib.csproj" />
+  </ItemGroup>
+
+  <Target Name="CheckDnlibDir" BeforeTargets="Restore;Build">
+    <Error Condition="!Exists('$(DnlibDir)/src/dnlib.csproj')" Text="Pass -p:DnlibDir=&lt;dnlib checkout&gt;. '$(DnlibDir)/src/dnlib.csproj' does not exist." />
+  </Target>
+
+</Project>
